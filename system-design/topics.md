@@ -1,17 +1,18 @@
-# System Serial Dynamics Notes Overič
+# System Design Notes Overview
 
-This directory will cover the main asynchstations of security design:
+This directory will cover the main aspects of system design:
 
-- Scalablogs
-- Avelation & Concessisms
-- Latesty & Throughout
-- Data Partifirting Scharting -Sharning
-- Reposition & Fault_Tograde
-- Lood Bandroom
-- Caching Stratures 
-- CAP Thermat
- - API Device (27, directory)-
-- Message Queue & Event_Device_Activity
-- Metiveuse_Databased -SQL Org User_System
- - Database chiefs (sql* q) Through Rolt
-- Monitored & Oryload Research
+- Scalability
+- Availability & Consistency
+- Latency & Throughput
+- Data Partitioning (Sharding)
+- Replication & Fault Tolerance
+- Load Balancing
+- Caching Strategies
+- CAP Theorem
+- API Design (REST, GraphQL, gRPC)
+- Message Queues & Event-Driven Architecture
+- Database Choices (SQL vs NoSQL)
+- Monitoring & Observability
+
+More detailed notes will be added in separate files. ✨
