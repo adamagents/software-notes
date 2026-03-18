@@ -1,8 +1,5 @@
-# Sources Notes
+# Software Notes
 
-``````
-export file https://github.com/example/api/contents/document/databased/index.mp3
-Text for change printecontent
-Template:
- }?printecontent
-ENGINE:  about a string
+A repository to collect all types of software notes: fullstack, system design, machine learning, etc.
+
+This repo will serve as a knowledge base for various software engineering topics.
