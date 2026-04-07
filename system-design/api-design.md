@@ -1,51 +1,52 @@
 # API Design Principles
 
-Great APIs are explicit about contracts, predictable in evolution, and defensive against abusive traffic.
+Modern API programs treat interfaces as long-lived products. Contracts must be explicit, evolution must be predictable, and every call should be observable, secure, and resilient.
 
-## Guiding Tenets
-- **Consumer Empathy**: Start from top user journeys; avoid leaking internal schemas.
-- **Explicit Contracts**: Machine-readable specs (OpenAPI, gRPC protobufs, GraphQL SDL) describe inputs, outputs, and error envelopes.
-- **Backward Compatibility**: Non-breaking additions by default; breaking changes require opt-in versions and migration paths.
-- **Defense in Depth**: Auth, rate limits, schema validation, and observability built-in rather than bolted on later.
+## Summary
+- **Consumer empathy first**: Model resources and workflows from the caller's perspective, not from internal schemas.
+- **Contracts as code**: Machine-readable specs (OpenAPI, protobufs, GraphQL SDL) double as documentation, validation, and test fixtures.
+- **Change discipline**: Prefer additive changes, publish deprecation timelines, and avoid breaking consumers without opt-in migration paths.
+- **Defense in depth**: Authentication, authorization, rate limiting, schema validation, and observability belong in the base platform.
 
-## Interface Styles
-| Style | Strengths | Watch Outs |
+## Architectural Building Blocks
+- **API Gateway / Edge Tier**: Terminates TLS, authenticates, enforces quotas, rewrites headers, and routes traffic to backend services.
+- **Schema & Contract Repository**: Stores specs, enforces lint rules, and gates deployments through contract testing.
+- **Documentation & DX Tooling**: Human-friendly docs, SDKs, Postman/Insomnia collections, examples, and sandbox environments accelerate partner onboarding.
+- **Lifecycle Automation**: Version promotion pipelines, changelog publishing, and sunset reminders keep the surface area manageable.
+
+## Interface Styles & Trade-offs
+| Style | Best For | Watch Outs |
 | --- | --- | --- |
-| REST/HTTP | Cacheable, ubiquitous tooling | Over/under-fetching, version sprawl |
-| GraphQL | Flexible queries, typed schema, single endpoint | Resolver N+1, caching complexity |
-| gRPC | Compact binary payloads, streaming, strong typing | Browser support limited, steeper learning curve |
-| Async (Webhooks, SSE, WebSockets) | Push-based updates, real-time | Retry/dedupe, client reconnection handling |
+| REST/HTTP | Resource-based CRUD with caching, browser compatibility | Over/under-fetching, version sprawl, limited schema rigor |
+| GraphQL | Flexible queries across multiple backends | Resolver N+1, caching complexity, strict query cost controls needed |
+| gRPC | Low-latency internal services, streaming workloads | Browser gaps, requires strong typing discipline and tooling |
+| Async (webhooks, SSE, WebSockets) | Event-driven integrations, push updates | Signature verification, dedupe/retry handling, connection lifecycle management |
 
-## Resource Modeling
-- Use nouns and hierarchy: `/users/{id}/settings` not `/getUserSettings`.
-- Support filtering, sorting, pagination consistently (cursor-based for unbounded lists).
-- Separate commands (mutations) from queries; enforce idempotency keys for non-idempotent operations.
-- Document field-level semantics, units, and accepted ranges.
+## Resource & Schema Design Checklist
+- Model with nouns and hierarchy (`/users/{id}/settings`) and keep verbs for actions that mutate (`/users/{id}:suspend`).
+- Provide consistent filtering, sorting, pagination (prefer cursor-based for unbounded lists) and document default limits.
+- Require idempotency keys for non-idempotent operations and capture them in logs for forensic analysis.
+- Document every field's units, acceptable ranges, and nullability; embed schema versions or etags in responses for cache friendliness.
 
-## Versioning Strategies
-- **URI Versioning** (`/v1/`): Simple routing, but duplicates resources.
-- **Header/Content Negotiation**: Cleaner URLs; requires tooling and documentation.
-- **GraphQL**: Prefer schema evolution with deprecation warnings rather than explicit versions.
-- Publish changelogs, sunset timelines, and adoption metrics before removing fields.
+## Evolution & Governance
+- Define a single source for API versions (URI prefix, header, or GraphQL schema) and automate compatibility linting before deploys.
+- Publish changelogs, migration guides, and sunset timelines; include contact channels for high-risk consumers.
+- Use contract tests (consumer-driven or provider-driven) to guarantee compatibility between SDKs and services.
+- Track adoption metrics per version to justify deprecations and to alert lagging customers early.
 
-## Error Handling & Observability
-- Standard envelope: `{ "error": { "code": "RATE_LIMIT", "message": "...", "details": [] } }`.
-- Map domain errors to HTTP semantics (400 validation, 401 auth, 409 conflict, 429 throttling, 5xx server faults).
-- Include correlation IDs and request IDs in responses and logs for tracing.
-- Emit RED metrics (rate, errors, duration) per endpoint; capture schema version in telemetry.
+## Reliability, Security & Compliance Controls
+- Enforce OAuth2/OIDC scopes or signed tokens; rotate secrets often and support per-environment credentials.
+- Validate payloads against schema (JSON Schema, Protobuf) to block injection and type confusion; sanitize logs.
+- Layer rate limiting, quotas, behavioral analytics, and anomaly detection near the edge to stop abuse before it hits core services.
+- Define standard error envelopes (`{"error":{"code":"RATE_LIMIT","message":"...","details":[]}}`) and map domain errors cleanly to HTTP semantics.
 
-## Governance & Tooling
-- Lint specs for naming conventions, pagination rules, and consistent status codes.
-- Use contract tests to validate both server and client implementations.
-- Provide SDKs, Postman/Insomnia collections, and runnable examples to reduce integration time.
-- Offer sandbox environments with deterministic data sets for partner testing.
-
-## Security Considerations
-- Enforce least-privilege scopes; rotate secrets and support OAuth2/OIDC where possible.
-- Guard against injection (validate payloads against schema), replay (timestamps + HMAC), and mass assignment attacks.
-- Rate limiting, quotas, and behavioral analytics protect shared infrastructure.
+## Observability & Developer Experience
+- Emit RED metrics (request rate, errors, duration) per endpoint plus saturation metrics (concurrency, queue depths).
+- Attach correlation IDs/request IDs and expose them in response headers to aid tracing across services.
+- Collect structured access logs including API key, version, idempotency key, and geo to debug client issues quickly.
+- Provide quick-start SDKs/tests that run in CI so consumers detect breaking changes before shipping.
 
 ## Interview Drills
-1. Describe how you would roll out a breaking change that touches thousands of clients.
-2. Explain what idempotency means for POST endpoints and how to implement it safely.
-3. Compare GraphQL vs. REST for an internal developer platform with diverse clients.
+1. Outline how you would roll out a backwards-incompatible change while supporting thousands of existing clients.
+2. Explain the mechanics of enforcing idempotency for POST endpoints across a multi-region deployment.
+3. Compare GraphQL, REST, and gRPC for a platform serving internal teams plus third-party partners, highlighting change-management implications.
