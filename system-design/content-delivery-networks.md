@@ -1,37 +1,43 @@
-# Content Delivery Networks (CDNs)
+# Content Delivery Networks
 
-CDNs push content closer to users by caching responses at globally distributed points of presence (PoPs), reducing latency and shielding origin infrastructure from spikes.
+## Overview
+CDNs replicate content and lightweight logic to edge points of presence so users receive responses from geographically close servers. They also shield origins from volumetric attacks, enforce security policy, and provide observability into client behavior. Treat the CDN as a programmable platform with rigorous configuration management instead of a static cache if you want predictable performance and resilience.
 
-## What CDNs Provide
-- **Static Asset Caching**: HTML, CSS, JS, images with cache-control, ETag validation.
-- **Dynamic Content Acceleration**: TCP/TLS termination near users, protocol optimizations (HTTP/3, TLS session reuse).
-- **Edge Compute**: Functions/workers to run logic (A/B tests, auth, header rewriting) at the edge.
-- **Security**: DDoS mitigation, Web Application Firewall (WAF), bot filtering.
-- **Load Shedding**: Shield POP forwarders protect origin capacity.
+## Core Challenges
+- **Cache correctness**: TTLs, validation headers, and surrogate keys must reflect ownership boundaries or the edge will serve stale or private data.
+- **Personalization vs. cacheability**: Highly dynamic pages need careful use of edge workers, signed cookies, or hole punching to stay cachable.
+- **Operational drift**: Hundreds of POPs magnify config mistakes. Every header change or TLS update must propagate safely.
+- **Visibility**: Operators need real-time logs and metrics from the edge to debug incidents before users notice regressions.
 
-## Cache Strategy
-- Set `Cache-Control`, `Surrogate-Control`, and `Vary` headers intentionally.
-- Use **surrogate keys/tags** to invalidate groups of assets atomically.
-- Prefer **immutable asset URLs** (content hashes) + long TTL to maximize hit ratio.
-- Implement **stale-while-revalidate** to serve cached content while refreshing asynchronously.
+## Architecture Building Blocks
+- **DNS and anycast routing**: Global load balancing directs users to the nearest healthy POP while preserving ability to shed load from unhealthy ones.
+- **Edge cache tiers**: Leaf POPs cache frequently accessed objects; mid-tier or shield POPs reduce miss storms toward the origin.
+- **Programmable edge runtime**: Functions or workers modify headers, run bot mitigation logic, or perform light personalization without origin hops.
+- **Security services**: WAF, bot detection, DDoS scrubbing, TLS termination, mTLS, and signed URL enforcement live closest to the user.
+- **Control plane**: APIs or GitOps-managed configs govern cache keys, TLS certs, purge requests, and log streaming destinations.
 
-## Multi-CDN & Failover
-- Use DNS load balancing or traffic steering (based on geography, performance, cost) to split load between providers.
-- Continuously measure POP performance (RUM + synthetic) to detect regional degradation.
-- Keep origin accessible only from CDN IP ranges; rotate allow lists automatically.
+## Design Checklist
+- Decide caching strategy per asset type: immutable fingerprints (long TTL, no revalidation), semi-dynamic pages (stale-while-revalidate), and sensitive APIs (short TTL plus validation headers).
+- Use surrogate keys or tag-based purges so releases flush only the affected objects rather than entire domains.
+- Normalize request headers before cache lookup to avoid unbounded key explosion; vary only on attributes that matter (language, auth tier, device class).
+- Provide signed URLs or tokens for private media and enforce origin access control so bypass attacks fail.
+- Automate TLS certificate issuance, rotation, and validation across every POP.
 
-## Observability & Operations
-- Monitor hit ratio, origin fetch rate, HTTP status breakdown, and cache fill latency.
-- Log request metadata (Edge vs. Origin) for debugging cache misses.
-- Automate purge workflows with CI hooks for deployments.
-- Test failover by forcing region-specific DNS overrides.
+## Failure Modes and Mitigations
+- **Cache poisoning**: Validate origin responses, enforce content security policies, and restrict which headers participate in the cache key.
+- **Low hit ratio**: Inspect cache status codes, object size histograms, and TTLs; adjust key normalization or add shield POPs to improve reuse.
+- **Origin overload**: Enable circuit breakers and surge queues so mid-tier caches absorb storms even when leaf POPs miss.
+- **POP isolation**: Run synthetic probes from every region, and maintain runbooks for rerouting traffic when a POP misbehaves.
+- **Edge compute bugs**: Deploy edge worker code gradually with feature flags and automatic rollback when error rates spike.
 
-## Edge Compute Considerations
-- Constrain runtime (memory, CPU) to avoid impacting tail latency.
-- Keep business logic stateless; read config via KV stores or signed cookies.
-- Validate and sanitize inputs to avoid running untrusted code path at the edge.
+## Observability and Operations
+- Stream request logs, WAF events, and cache metrics to centralized storage for analysis. Redact PII before exporting.
+- Track cache hit ratio, origin offload, TLS success rates, HTTP protocol mix, and latency percentiles per POP.
+- Integrate CDN metrics with incident response tooling so on-call engineers can correlate cache purge events with user-facing symptoms.
+- Use policy-as-code for CDN configs to enable peer review, linting, and automated testing before rollout.
+- Rehearse full-site purges and POP failovers so the team understands blast radius and recovery mechanics.
 
 ## Interview Prompts
-1. How would you decide what to cache at the CDN vs. at the application layer?
-2. Describe a strategy for invalidating millions of product pages quickly after a price change.
-3. What telemetry would you inspect first if a CDN POP suddenly serves stale data?
+1. Design a CDN strategy for an e-commerce storefront with personalized recommendations but cachable assets.
+2. Explain how you would debug a sudden drop in cache hit ratio that coincides with a new marketing campaign.
+3. Describe how to rotate customer-managed TLS certificates across thousands of CDN endpoints without downtime.

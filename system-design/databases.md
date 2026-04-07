@@ -1,43 +1,43 @@
-# Database Choices
+# Databases
 
-Healthy systems pick database technologies that match workload characteristics instead of chasing trends. Every choice trades durability, latency, query flexibility, and operational complexity.
+## Overview
+Selecting a database is an exercise in matching workload traits to engines, not picking a fashionable technology. Capture access patterns, latency budgets, transactions, retention, compliance, and operational staffing before choosing. Production-ready systems pair the right datastore with governance around schema changes, migrations, resilience testing, and observability.
 
-## Decision Dimensions
-| Dimension | Questions to Ask |
-| --- | --- |
-| Access Pattern | Point lookups, range scans, graph traversals, analytical aggregations? |
-| Consistency | Strict ACID, read-after-write, eventual consistency acceptable? |
-| Latency Targets | Sub-millisecond, single-digit ms, or analytics-scale seconds? |
-| Scale Profile | Steady growth, unpredictable bursts, write-heavy vs. read-heavy? |
-| Schema Evolution | Do fields evolve frequently or need ad-hoc columns? |
-| Operational Model | Managed service availability, self-hosted constraints, multi-region? |
+## Core Challenges
+- **Workload diversity**: OLTP, analytics, graph traversals, full-text search, and time-series workloads have different index and storage needs.
+- **Scaling writes**: Single primaries saturate quickly; sharding, consensus replication, and log shipping introduce complexity.
+- **Consistency expectations**: Some domains require serializable transactions, while others tolerate eventual or session-level guarantees.
+- **Operations and compliance**: Backups, PITR, encryption, auditing, and data masking must be built into the lifecycle.
 
-## SQL Databases
-- Strong consistency, transactions, rich indexing, relational joins.
-- Vertical scaling plus read replicas; sharding adds complexity but well-trodden (e.g., Vitess, Citus).
-- Best for financial systems, inventory, strong referential integrity.
-- Tune with normalized schemas, query plans, partitioning, and caching of heavy joins.
+## Architecture Building Blocks
+- **Relational engines**: PostgreSQL, MySQL, SQL Server, and managed variants excel at normalized schemas, joins, and ACID guarantees.
+- **NoSQL families**: Key-value stores serve constant-time lookups, document stores handle flexible schemas, wide-column stores absorb petabyte-scale writes, and graph databases optimize traversals.
+- **Search engines**: Elasticsearch/OpenSearch add relevance scoring, aggregations, and log analytics atop inverted indexes.
+- **Polyglot persistence**: Bounded contexts own their database but exchange data through CDC, events, or data warehouses.
+- **Data governance layer**: Schema registry, migration tooling, and data catalogs keep teams aligned on definitions and ownership.
 
-## NoSQL Families
-- **Key-Value Stores** (DynamoDB, Riak): Predictable latency, horizontal scaling, but limited querying beyond primary key.
-- **Document Stores** (MongoDB, Couchbase): Flexible JSON-like records, indexes on nested fields, eventual or tunable consistency.
-- **Columnar Wide-Column Stores** (Cassandra, HBase): Optimized for large sequential writes and wide datasets; rely on denormalization and composite keys.
-- **Graph Databases** (Neo4j, JanusGraph): Efficient traversals and path queries, useful for recommendation or fraud graphs.
+## Design Checklist
+- Start from queries. Identify the top read and write paths, access frequency, and latency SLA. Use that to size indexes, partitions, and caches.
+- Prefer managed services unless regulatory or latency constraints demand self-hosting.
+- Define migration playbooks: online schema changes, backfills, verification queries, and rollback switches.
+- Separate transactional and analytics loads either via read replicas, CDC-fed warehouses, or materialized views.
+- Encrypt data at rest and in transit, rotate credentials automatically, and enforce least-privilege access.
 
-## Polyglot Persistence
-- Use multiple databases per bounded context, but **own the data flow contracts** (CDC pipelines, change schemas, eventual reconciliation playbooks).
-- Keep authoritative source of truth clear; caches or read models should rebuild from upstream logs.
+## Scaling and Resilience
+- **Read scaling**: Use replicas behind read balancers, but expose replica lag to callers so stale reads are understood.
+- **Write scaling**: Partition by tenant, geography, or workload characteristics; leverage coordinator frameworks (Vitess, Citus) when domain logic forbids manual sharding.
+- **Multi-region**: Decide between active-passive, active-active with conflict resolution, or globally consistent stores like Spanner or Yugabyte.
+- **Backups**: Automate full and incremental backups, store them off-site, and rehearse restore drills frequently.
+- **Schema evolution**: Use forward-compatible migrations (expand, backfill, contract) and guard deploys with automated checks.
 
-## Multi-Region Considerations
-- Define primary vs. active-active replication. Cross-region writes require conflict resolution (CRDTs, last-write-wins, application-specific merges).
-- WAN latency pushes teams toward local writes with async replication; be explicit about RPO/RTO metrics.
-
-## Operational Playbook
-- Implement schema migration tooling (online migrations, feature flags for new fields).
-- Monitor lag for replicas, storage utilization, slow query logs.
-- Backup + restore drills: test PITR, verify checksums, isolate restored clusters for validation before promoting.
+## Observability and Operations
+- Monitor slow queries, lock waits, deadlocks, replication lag, buffer cache hit ratio, disk saturation, and connection pool health.
+- Include database spans in distributed tracing to attribute latency to query execution vs. network hops.
+- Maintain runbooks for failover, parameter tuning, and incident commands. Tie them to dashboards for quick navigation.
+- Tag data sets with owners, retention policies, and sensitivity levels so auditing and deletion requests can be fulfilled quickly.
+- Use cost governance: track storage tier usage, query costs, and idle replicas to prevent bill shock.
 
 ## Interview Prompts
-1. When would you choose a relational DB plus caching over a document store for user profiles?
-2. How would you shard a multi-tenant database while still enabling analytics per tenant?
-3. What failure modes appear when replica lag grows beyond SLA, and how do you mitigate them?
+1. Design a multi-tenant SaaS data strategy that balances noisy neighbors with operational simplicity.
+2. Compare sharding a monolithic relational database versus adopting Cassandra for a write-heavy workload. What new failure modes appear?
+3. Outline a migration path that moves reporting queries off the primary OLTP database without blocking feature work.

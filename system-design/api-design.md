@@ -1,48 +1,48 @@
-# API Design Principles
+# API Design
 
-Robust APIs minimize ambiguity, evolve predictably, and protect downstream systems from abusive or accidental misuse.
+## Overview
+APIs are long-lived products. They require deliberate modeling, compatibility guarantees, defenses, and developer experience investments. Treat every API change like a contract negotiation: version it, document it, instrument it, and provide migration paths that respect consumers.
 
-## Guiding Tenets
-- **Consumer Empathy**: Define APIs around use cases, not internal data models.
-- **Explicit Contracts**: Schemas and OpenAPI/GraphQL SDL describe inputs, outputs, and error shapes.
-- **Backward Compatibility**: Never break existing clients without version negotiation.
-- **Defense in Depth**: Rate limiting, authN/Z, schema validation, and observability built-in from day one.
+## Principles
+- **Consumer perspective first**: Model resources and workflows from the caller's job-to-be-done, not from backend table layouts.
+- **Contracts as code**: Maintain OpenAPI, gRPC proto, or GraphQL SDL definitions under version control with linting and compatibility gates.
+- **Change discipline**: Prefer additive changes, publish deprecation timelines, and communicate migration plans early.
+- **Defense in depth**: Authentication, authorization, schema validation, rate limiting, and observability belong at the edge tier.
+
+## Architecture Building Blocks
+- **API gateway**: Terminates TLS, authenticates, enforces quotas, rewrites headers, and routes traffic to backend services.
+- **Schema registry**: Stores machine-readable specs, powers contract tests, and keeps SDK generation reproducible.
+- **Developer tooling**: Documentation portals, SDKs, Postman/Insomnia collections, sandbox environments, and changelog feeds reduce onboarding time.
+- **Lifecycle automation**: Version promotion pipelines, contract testing, release notes, and sunset reminders keep the surface area manageable.
+
+## Design Checklist
+- Use intention-revealing resource names (`/users/{id}/settings`) and reserve verbs for actions (`/users/{id}:suspend`).
+- Provide consistent filtering, sorting, and pagination. Prefer cursor-based pagination for unbounded lists.
+- Require idempotency keys for writes that are not naturally idempotent; persist them for forensic analysis.
+- Define structured error envelopes with machine-readable codes plus correlation IDs for tracing.
+- Document rate limits, throttling headers, retry guidance, and SLA expectations for every endpoint.
 
 ## Interface Styles
-| Style | Strengths | Watch Outs |
-| --- | --- | --- |
-| REST | Cacheable, simple, HTTP-native | Version sprawl, under/over-fetching |
-| GraphQL | Single endpoint, typed schema, flexible queries | Expensive resolver N+1s, complex caching |
-| gRPC | Strong types, bidi streaming, compact | Browser support limited, steeper tooling |
-| Async APIs (Webhooks, SSE) | Real-time updates | Retry + dedupe complexities |
+- **REST/HTTP**: Best for resource CRUD with caching and browser compatibility. Watch for version sprawl and over/under-fetching.
+- **GraphQL**: Offers flexible queries and aggregation. Requires cost controls, caching strategies, and resolver performance tracking.
+- **gRPC**: Delivers low-latency, strongly typed interfaces for internal services. Browsers need gRPC-Web or HTTP fallback.
+- **Async patterns**: Webhooks, Server-Sent Events, WebSockets, and event streams push updates to clients; require signature verification and replay tooling.
 
-## Resource Modeling
-- Use nouns, not verbs: `/users/{id}/settings`.
-- Support filtering, sorting, pagination consistently (cursor-based for large datasets).
-- Separate **commands** (side-effect operations) from **queries** for clarity.
+## Reliability and Security
+- Enforce OAuth2/OIDC scopes or signed tokens per tenant; rotate secrets frequently.
+- Validate every payload against schema before touching business logic.
+- Layer rate limiting, quotas, anomaly detection, and abuse heuristics near the edge.
+- Emit RED metrics per endpoint alongside saturation signals like queue depth and concurrency.
+- Log structured access events including API key, version, idempotency key, and geo to aid forensic investigations.
 
-## Versioning Strategies
-- **URI Versioning** (`/v1/`): Easy to route but invites drift.
-- **Header/Content Negotiation**: Cleaner URLs, but clients must set headers correctly.
-- **GraphQL**: Prefer schema evolution with deprecations over explicit versions.
-- Maintain changelog + sunset policy; instrument actual usage before removing fields.
-
-## Error Handling
-- Consistent envelope: `{ "error": { "code": "RATE_LIMIT", "message": "...", "details": [...] } }`
-- Map domain errors to HTTP status codes (4xx client issues, 5xx server issues).
-- Include correlation/request IDs for debugging.
-
-## Governance
-- Automated linting of API specs (naming, pagination, enums).
-- Design reviews with consumer teams; create style guides.
-- Track adoption metrics and SLA adherence in dashboards.
-
-## Documentation & DX
-- Provide runnable examples, SDKs, and Postman/Insomnia collections.
-- Document auth flows, retry semantics, idempotency keys, and pagination patterns.
-- Offer sandbox environments with deterministic data for integration testing.
+## Evolution and Governance
+- Maintain a single source for API versions (URI prefix, header, or schema tag) and enforce compatibility via CI.
+- Track adoption metrics per version; use them to justify and schedule deprecations.
+- Provide migration guides, changelog entries, and proactive customer communication whenever a breaking change looms.
+- Use contract tests (consumer-driven or provider-driven) to keep SDKs and services in sync.
+- Store API policies as code so reviews, rollbacks, and audits are straightforward.
 
 ## Interview Prompts
-1. How would you roll out a breaking change to an API that has thousands of clients?
-2. What does "idempotency" mean for POST endpoints, and how do you enforce it?
-3. Compare when you would pick GraphQL over REST for an internal platform.
+1. Describe how you would roll out a backwards-incompatible change to a high-traffic public API without breaking clients.
+2. Explain the mechanics of enforcing idempotency for POST requests across a multi-region deployment.
+3. Compare REST, GraphQL, and gRPC for a platform serving both internal teams and third-party partners.

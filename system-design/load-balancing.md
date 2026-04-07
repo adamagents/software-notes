@@ -1,47 +1,43 @@
 # Load Balancing
 
-Effective load balancing keeps distributed systems responsive and resilient by spreading requests across compute resources, minimizing hotspots, and isolating failures before they cascade.
+## Overview
+Load balancers preserve latency budgets, protect downstream capacity, and create predictable failure domains. They absorb noisy traffic, keep compute fleets evenly utilized, and give platform teams a single policy surface for security and observability. The best architectures combine global routing, regional balancing, and client-side resiliency so every hop can survive partial outages.
 
-## Core Goals
-- **Evenly utilize capacity** so no single node throttles throughput.
-- **Reduce latency** by routing users to the nearest or least busy backend.
-- **Provide resilience** through rapid detection and removal of unhealthy targets.
-- **Enable elasticity** by making it safe to add or remove instances at runtime.
+## Core Challenges
+- **Transport diversity**: HTTP, gRPC, WebSocket, and TCP each require different termination, header handling, and keepalive policies.
+- **Stateful workloads**: Sticky sessions, streaming connections, and websocket fan-out need affinity controls without sacrificing failover guarantees.
+- **Elasticity**: Autoscalers must add and remove instances without draining the pool or causing cold-start cascades.
+- **Policy layering**: TLS, auth, rate limits, and WAF rules must execute consistently whether traffic arrives through DNS steering, anycast, or client libraries.
 
-## Common Algorithms
-| Algorithm | How It Works | Strengths | Watch Outs |
-| --- | --- | --- | --- |
-| Round Robin | Sequence through hosts in order | Simple, stateless | Ignores load/latency differences |
-| Weighted Round Robin | Assigns higher frequency to powerful nodes | Honors heterogenous capacity | Needs periodic weight tuning |
-| Least Connections | Chooses target with fewest active requests | Reacts to uneven work | Requires up-to-date connection counts |
-| Least Response Time | Tracks observed latency per target | Optimizes tail latency | Sensitive to noisy measurements |
-| Hash-Based | Hash on user/session/id to pick host | Sticky sessions without cookies | Rebalancing causes cache churn |
-| Random with Two Choices | Sample two hosts, pick better metric | Near-optimal balance with low state | Requires consistent health data |
+## Architecture Building Blocks
+- **Global traffic management**: Anycast or GeoDNS measures health across regions and hands clients a close, healthy edge before regional balancers get involved.
+- **Edge proxies**: Layer 7 components (Envoy, NGINX, HAProxy) terminate TLS, normalize headers, set timeouts, and enforce circuit breakers.
+- **Layer 4 switches**: Network load balancers distribute TCP/UDP traffic for protocols that cannot tolerate HTTP-aware proxies.
+- **Client-side libraries or service mesh**: SDKs or sidecars keep endpoint lists locally, implement retries with jitter, and expose per-request telemetry.
+- **Control plane**: Stores upstream definitions, weights, security policies, and rollout metadata with audit logs and rollbacks.
 
-## Architectural Patterns
-- **Global vs. Regional Balancers**: DNS-based or Anycast layers steer traffic into regions, then regional L4/L7 balancers distribute within a data center.
-- **Layer 4 (Transport) Balancing**: Operates on TCP/UDP tuples using NAT; low overhead but limited application insight.
-- **Layer 7 (Application) Balancing**: Terminates TLS/HTTP, can route by URL path, headers, content type, or user metadata.
-- **Client-Side Balancing**: Smart clients fetch service registries (e.g., via Consul/Eureka) and pick targets locally, reducing centralized chokepoints.
-- **Edge + Internal Tiers**: CDN/WAF at the edge, gateway/load balancer pair at ingress, then service mesh or per-service balancers deeper in the stack.
+## Design Checklist
+- Document routing goals: latency, fairness, locality, or stickiness. Different goals require distinct algorithms (round robin, least outstanding requests, consistent hash, power-of-two choices).
+- Keep health checks layered: lightweight TCP probes for basic reachability, HTTP checks for app health, and synthetic transactions for end-to-end guarantees.
+- Use connection draining during deploys and AZ evacuations so in-flight requests finish gracefully before instances leave the pool.
+- Separate read and write traffic or noisy neighbors with priority queues or separate listener ports.
+- Version routing configurations and ship them via GitOps or config repos so you can diff and revert quickly.
 
-## Health Checking & Failover
-- Out-of-band health checks (HTTP/TCP) plus in-band request success metrics prevent relying on a single signal.
-- Mark hosts as *draining* before maintenance to allow graceful connection wind-down.
-- Implement circuit breakers per target to stop flapping hosts from rejoining too quickly.
-- Keep failover domains well-scoped: prefer regional rerouting before cross-continent failovers to avoid massive cold starts.
+## Failure Modes and Mitigations
+- **Thundering herd on recovery**: When a pool returns, weighted warmup or token buckets keep it from immediately taking full traffic.
+- **Stuck connections**: Track max lifetime and idle timeout per protocol; close zombie sockets to free resources.
+- **Split brain DNS**: Keep TTLs short and couple DNS answers with active health checks so dead regions stop receiving new sessions.
+- **Uneven distribution**: Feed schedulers with EWMA latency and success metrics instead of instantaneous counters to avoid oscillation.
+- **Cascading retries**: Enforce global budgets for retries and timeouts; client libraries should honor `Retry-After` or gRPC status metadata.
 
-## Stateful Traffic Strategies
-- Prefer stateless services so any node can serve any request; where sticky routing is required (shopping carts, WebSockets), back it with shared state (Redis, session DB) or replicate the data via consistent hashing so the balancer can still move traffic when needed.
-- For gRPC and long-lived streams, use **subchannel pools** with periodic rebalancing to avoid permanent skew.
+## Observability and Operations
+- Emit RED/USE metrics per listener, backend, and AZ. Include labels for TLS version, HTTP verb, and upstream service.
+- Log chosen upstream, response codes, connection IDs, and trace IDs so distributed traces can stitch together hops.
+- Continuously test failover paths with chaos tooling that drains nodes, injects latency, or corrupts TLS certificates.
+- Automate certificate renewal, configuration diffing, and security patching to avoid manual drift.
+- Record every weight or routing change with the operator identity and ticket reference for forensic clarity.
 
-## Observability Checklist
-- Export per-target request rate, latency histogram, and HTTP status distribution.
-- Alert on imbalance indicators: max/min load ratio, percentage of traffic hitting degraded nodes.
-- Record routing decisions (e.g., via access logs with backend IDs) to debug intermittent customer issues quickly.
-
-## Interview / Design Questions
-1. How would you scale a global API gateway from 10k to 1M RPS?
-2. What happens if your health checks are too aggressive or too lax?
-3. How do you handle blue/green deploys without dropping long-lived connections?
-4. How would you route premium customers to beefier hosts without duplicating fleets?
+## Interview Prompts
+1. Design a multi-region API front door that keeps 99th percentile latency under 150 ms even if one region disappears. Detail DNS, transport, and health-check choices.
+2. Explain how you would migrate from appliance load balancers to service-mesh-based client-side balancing without downtime.
+3. Walk through debugging sporadic 502 errors when only one AZ reports elevated queueing time—what metrics and logs do you inspect first?

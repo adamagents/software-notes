@@ -1,42 +1,43 @@
-# Caching Strategies
+# Caching
 
-Caching complements primary data stores by keeping hot data close to consumers, reducing latency and downstream load when applied thoughtfully.
+## Overview
+Caching compresses latency and shields origins by serving hot data from faster tiers. A disciplined cache strategy defines ownership, invalidation, observability, and failure posture for every piece of data. Treat caches as subsystems with SLAs instead of opportunistic shortcuts and you gain predictable performance improvements without corrupting correctness.
 
-## Layers of Caching
-1. **Client / Browser** – HTTP cache-control headers, service workers, offline-first patterns.
-2. **CDN / Edge** – Static assets, API responses with surrogate keys, TLS session tickets.
-3. **Application Tier** – In-memory caches (LRU, ARC), sidecar memcached/Redis.
-4. **Database / Storage** – Buffer pools, page caches, query result caches.
+## Core Challenges
+- **Invalidation accuracy**: Keys must encode schema version, tenant, and locale so evictions are surgical.
+- **Stampede control**: Surges of misses can DDoS origins unless single-flight or request coalescing is in place.
+- **Data sensitivity**: PII and regulated content require encryption, ACLs, and shorter TTLs even when cached.
+- **Layer coordination**: Browsers, CDNs, application caches, and database buffers must agree on freshness rules.
 
-## Cache Design Decisions
-- **Key Design**: Use clear namespaces (`user:{id}:profile`) to avoid collisions and enable bulk invalidation via prefix scans.
-- **Value Format**: Store encoded structs (JSON, protobuf) with version metadata to support schema evolution.
-- **TTL vs. Write-Through**: Short TTLs simplify invalidation but risk thundering herds; write-through keeps cache correct but increases write latency.
-- **Consistency Strategy**: Choose between cache-aside (read-through), write-through, write-behind, or read-repair depending on tolerance for stale data.
+## Architecture Building Blocks
+- **Client and browser caches**: HTTP caching headers, service workers, and local storage suppress duplicate requests.
+- **Edge caches**: CDN POPs cache static assets, API GET payloads, and even generated HTML with stale-while-revalidate policies.
+- **Application caches**: Redis or Memcached store computed responses, session state, token buckets, and feature flags.
+- **Storage-engine caches**: Buffer pools, page caches, and materialized views keep hot pages on SSD or RAM to reduce random I/O.
+- **Control plane**: Namespaces, TTL defaults, invalidation APIs, and audit logs live here to keep caches governable.
 
-## Patterns & Anti-Patterns
-- **Cache-Aside (Lazy Loading)**: Application checks cache, reads DB if miss, then populates cache. Simple, but prone to stampedes.
-- **Read-Through**: Cache provider fetches from origin automatically. Great when using managed caches with hooks.
-- **Write-Through**: Writes hit cache and origin simultaneously; ideal for reads that must reflect latest state immediately.
-- **Write-Behind**: Batch updates to origin for throughput, but requires durable queues and replay logic.
-- **Negative Caching**: Cache "not found" responses briefly to stop repeated misses.
-- **Dogpile Protection**: Use request coalescing, mutexes, or probabilistic early expiration (`expire_at - jitter`) to avoid herd effects.
+## Design Checklist
+- Choose cache strategy per dataset: cache-aside for easy retrofits, read-through for managed caches, write-through when strict freshness is required, and refresh-ahead for predictable workloads.
+- Namespaces should include dataset version plus optional feature flag or experiment ID (`profile:v3:user:{id}`).
+- Apply TTL jitter so expiring entries do not thundering herd the origin at the same instant.
+- Cache negative lookups briefly to protect databases from brute-force scans of missing identifiers.
+- Document consistency guarantees for every key space (best-effort, bounded-staleness, write-through) so downstream services can reason about correctness.
 
-## Capacity Planning
-- Measure object size distribution and hit ratios to determine working set.
-- Apply **TinyLFU** or **Segregated LRU** when request frequency is highly skewed.
-- Track eviction rate vs. miss rate; rising evictions without traffic growth indicates underprovisioning.
+## Failure Modes and Mitigations
+- **Thundering herd**: Use request coalescing, single-flight locks, or asynchronous regeneration so only one caller recomputes an entry.
+- **Silent staleness**: Embed schema version or checksums inside cached blobs; delete entries automatically when deployments bump versions.
+- **Hot keys**: Detect keys that consume disproportionate CPU and shard them with salts, request coalescing, or dedicated partitions.
+- **Replica lag**: Monitor replication delay in distributed caches and prefer local reads with stale-on-failure policies.
+- **Cache poisoning**: Authenticate writers, validate payload size and schema, and restrict cross-tenant access.
 
-## Security & Governance
-- Separate namespaces or clusters for PII vs. public data, enforce TLS and AUTH tokens for Redis/memcached.
-- Sanitize cacheable responses to prevent user-specific data leaking at higher cache layers.
-- Audit cache key entropy to avoid unbounded growth from adversarial inputs.
+## Observability and Operations
+- Track hit ratio, miss ratio, eviction causes, memory usage, latency, and key size histograms per namespace.
+- Emit cache-layer spans in distributed tracing so developers can see when they are serving stale or cold data.
+- Provide tooling for targeted invalidation, cache warmups, and snapshot restore after maintenance events.
+- Run chaos drills that flush caches or kill nodes to ensure origins survive cold starts.
+- Classify cached data by sensitivity and enforce separate clusters or encryption for high-risk categories.
 
-## Observability
-- Instrument per-operation latency, hit/miss counts, evictions, connection pool usage.
-- Expose cache effectiveness per endpoint to guide where caching actually helps.
-
-## Interview / Design Prompts
-1. How would you design a cache strategy for a social feed with strict freshness for writes but tolerant reads?
-2. Describe how to prevent a thundering herd when a popular key expires.
-3. When would you bypass caches entirely for a request, and why?
+## Interview Prompts
+1. Design a caching plan for a personalized feed that requires read-after-write consistency for the posting user but can tolerate stale reads for others.
+2. Explain how you would retrofit cache stampede protections into an API that currently calls the database on every miss.
+3. Discuss the operational signals you would instrument before launching a new edge cache tier in front of an existing API.
