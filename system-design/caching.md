@@ -1,42 +1,55 @@
 # Caching Strategies
 
-Caching complements primary data stores by keeping hot data close to consumers, reducing latency and downstream load when applied thoughtfully.
+Caching narrows the gap between fast consumers and slower systems of record, but only works when invalidation, capacity, and governance are explicit parts of the design.
 
-## Layers of Caching
-1. **Client / Browser** – HTTP cache-control headers, service workers, offline-first patterns.
-2. **CDN / Edge** – Static assets, API responses with surrogate keys, TLS session tickets.
-3. **Application Tier** – In-memory caches (LRU, ARC), sidecar memcached/Redis.
-4. **Database / Storage** – Buffer pools, page caches, query result caches.
+## Objectives
+- **Latency Reduction**: Serve hot data from memory or close to the edge in sub-millisecond time.
+- **Load Shedding**: Protect databases downstream by absorbing read bursts.
+- **Cost Control**: Shift repeated work to cheaper tiers (edge POPs, hosts with large RAM).
+- **Graceful Degradation**: Continue serving mostly-correct results while origins recover.
 
-## Cache Design Decisions
-- **Key Design**: Use clear namespaces (`user:{id}:profile`) to avoid collisions and enable bulk invalidation via prefix scans.
-- **Value Format**: Store encoded structs (JSON, protobuf) with version metadata to support schema evolution.
-- **TTL vs. Write-Through**: Short TTLs simplify invalidation but risk thundering herds; write-through keeps cache correct but increases write latency.
-- **Consistency Strategy**: Choose between cache-aside (read-through), write-through, write-behind, or read-repair depending on tolerance for stale data.
+## Layers of a Cache Stack
+1. **Client-Side**: HTTP cache headers, service worker stores, mobile persistent caches.
+2. **Edge / CDN**: Surrogate keys, signed URLs, and stale-while-revalidate to protect origins globally.
+3. **Application Tier**: Redis/Memcached sidecars, process-local LRU caches for ultra-low latency.
+4. **Database Layer**: Buffer pools, query plan caches, and materialized views reduce disk seeks.
 
-## Patterns & Anti-Patterns
-- **Cache-Aside (Lazy Loading)**: Application checks cache, reads DB if miss, then populates cache. Simple, but prone to stampedes.
-- **Read-Through**: Cache provider fetches from origin automatically. Great when using managed caches with hooks.
-- **Write-Through**: Writes hit cache and origin simultaneously; ideal for reads that must reflect latest state immediately.
-- **Write-Behind**: Batch updates to origin for throughput, but requires durable queues and replay logic.
-- **Negative Caching**: Cache "not found" responses briefly to stop repeated misses.
-- **Dogpile Protection**: Use request coalescing, mutexes, or probabilistic early expiration (`expire_at - jitter`) to avoid herd effects.
+## Data Modeling & TTLs
+- Namespace keys with clear ownership (`feed:v1:user:{id}`) to enable selective flushes.
+- Store schema version + checksum inside cached values to detect incompatible readers.
+- TTL Tuning: Short TTL for volatile data, long TTL plus explicit invalidation for mostly static assets.
+- Apply jitter to TTLs (`ttl * random(0.9, 1.1)`) to avoid synchronized expirations.
+
+## Read/Write Patterns
+| Pattern | Description | Use When |
+| --- | --- | --- |
+| Cache-Aside | App loads data on miss, writes to cache | Simple adoption, tolerant of stale data |
+| Read-Through | Cache provider fetches data | Managed caches, transparent for callers |
+| Write-Through | Write to cache and origin atomically | Reads must observe latest state |
+| Write-Behind | Buffer writes and flush async | High write throughput, eventual consistency |
+| Refresh-Ahead | Background workers refresh popular keys before expiry | Predictable traffic cycles |
+
+## Consistency & Stampede Control
+- Use mutexes or request coalescing (single-flight) so only one request regenerates an expired key.
+- Negative caching prevents repeated lookups for missing data; pair with very short TTL.
+- Idempotent writes + version tokens allow safe retries when caches and databases race.
 
 ## Capacity Planning
-- Measure object size distribution and hit ratios to determine working set.
-- Apply **TinyLFU** or **Segregated LRU** when request frequency is highly skewed.
-- Track eviction rate vs. miss rate; rising evictions without traffic growth indicates underprovisioning.
+- Measure object size histogram and hit ratios to size clusters.
+- Track eviction reason codes; a spike in evictions with constant traffic signals underprovisioning.
+- For sharded caches, monitor ownership imbalance; add consistent hashing with virtual nodes to redistribute smoothly.
 
 ## Security & Governance
-- Separate namespaces or clusters for PII vs. public data, enforce TLS and AUTH tokens for Redis/memcached.
-- Sanitize cacheable responses to prevent user-specific data leaking at higher cache layers.
-- Audit cache key entropy to avoid unbounded growth from adversarial inputs.
+- Require TLS and AUTH on managed caches; rotate credentials via secrets manager.
+- Segment caches by data classification (PII vs. anonymous) to simplify compliance.
+- Expire personally identifiable data aggressively and back it with secure erase policies.
 
-## Observability
-- Instrument per-operation latency, hit/miss counts, evictions, connection pool usage.
-- Expose cache effectiveness per endpoint to guide where caching actually helps.
+## Observability Checklist
+- Export hit/miss, latency, memory usage, evictions, replication lag, and connection pool depth.
+- Annotate dashboards with deployment/flush events to correlate cache churn with incidents.
+- Sample payloads to detect serialization drift or oversize values creeping in.
 
-## Interview / Design Prompts
-1. How would you design a cache strategy for a social feed with strict freshness for writes but tolerant reads?
-2. Describe how to prevent a thundering herd when a popular key expires.
-3. When would you bypass caches entirely for a request, and why?
+## Interview Drills
+1. Design a cache hierarchy for a personalized feed with strict write freshness but tolerant reads.
+2. Explain how you would prevent a thundering herd when a viral key expires.
+3. Describe a plan for migrating from cache-aside to write-through without downtime.

@@ -1,47 +1,47 @@
 # Load Balancing
 
-Effective load balancing keeps distributed systems responsive and resilient by spreading requests across compute resources, minimizing hotspots, and isolating failures before they cascade.
+Load balancers absorb fluctuating demand, shield unhealthy nodes, and keep latency predictable by steering requests intelligently across compute pools.
 
-## Core Goals
-- **Evenly utilize capacity** so no single node throttles throughput.
-- **Reduce latency** by routing users to the nearest or least busy backend.
-- **Provide resilience** through rapid detection and removal of unhealthy targets.
-- **Enable elasticity** by making it safe to add or remove instances at runtime.
+## System Goals
+- **Fair Utilization**: Keep every healthy instance within a safe CPU/memory envelope.
+- **Latency Control**: Prefer routes that minimize round-trip time and queueing delays.
+- **Fault Isolation**: Detect and quarantine bad nodes before they poison upstream capacity.
+- **Elastic Growth**: Accept new instances seamlessly so autoscaling can add/remove capacity.
 
-## Common Algorithms
-| Algorithm | How It Works | Strengths | Watch Outs |
-| --- | --- | --- | --- |
-| Round Robin | Sequence through hosts in order | Simple, stateless | Ignores load/latency differences |
-| Weighted Round Robin | Assigns higher frequency to powerful nodes | Honors heterogenous capacity | Needs periodic weight tuning |
-| Least Connections | Chooses target with fewest active requests | Reacts to uneven work | Requires up-to-date connection counts |
-| Least Response Time | Tracks observed latency per target | Optimizes tail latency | Sensitive to noisy measurements |
-| Hash-Based | Hash on user/session/id to pick host | Sticky sessions without cookies | Rebalancing causes cache churn |
-| Random with Two Choices | Sample two hosts, pick better metric | Near-optimal balance with low state | Requires consistent health data |
+## Core Architectures
+1. **Global Traffic Management**: Anycast DNS, Geo-DNS, or BGP announcements route users to the nearest region before regional balancers take over.
+2. **Layer 7 Proxies**: Envoy/NGINX terminate TLS, apply routing rules, rewrites, and per-endpoint policies.
+3. **Layer 4 Load Balancers**: Simple TCP/UDP load spreading (e.g., AWS NLB) when application protocols are opaque.
+4. **Client-Side Balancing**: Service meshes and gRPC clients keep endpoint lists and pick targets locally to avoid centralized chokepoints.
 
-## Architectural Patterns
-- **Global vs. Regional Balancers**: DNS-based or Anycast layers steer traffic into regions, then regional L4/L7 balancers distribute within a data center.
-- **Layer 4 (Transport) Balancing**: Operates on TCP/UDP tuples using NAT; low overhead but limited application insight.
-- **Layer 7 (Application) Balancing**: Terminates TLS/HTTP, can route by URL path, headers, content type, or user metadata.
-- **Client-Side Balancing**: Smart clients fetch service registries (e.g., via Consul/Eureka) and pick targets locally, reducing centralized chokepoints.
-- **Edge + Internal Tiers**: CDN/WAF at the edge, gateway/load balancer pair at ingress, then service mesh or per-service balancers deeper in the stack.
+## Algorithms & When to Use Them
+| Algorithm | Pick When | Caveats |
+| --- | --- | --- |
+| Round Robin | Homogeneous nodes, stateless work | Ignores live load differences |
+| Weighted Round Robin | Mixed instance sizes (e.g., on-prem + cloud burst) | Requires accurate weight tuning |
+| Least Connections | Variable request cost, long-lived sessions | Needs timely connection counts |
+| Least Response Time | Tail latency matters | Sensitive to outliers/noisy metrics |
+| Consistent Hash | Sticky sessions or cache locality required | Rebalancing may cause cache churn |
+| Power of Two Choices | Huge clusters where global state is expensive | Needs quick health snapshots |
 
-## Health Checking & Failover
-- Out-of-band health checks (HTTP/TCP) plus in-band request success metrics prevent relying on a single signal.
-- Mark hosts as *draining* before maintenance to allow graceful connection wind-down.
-- Implement circuit breakers per target to stop flapping hosts from rejoining too quickly.
-- Keep failover domains well-scoped: prefer regional rerouting before cross-continent failovers to avoid massive cold starts.
+## Operational Playbook
+- **Health Checks**: Combine TCP, HTTP, and synthetic transaction checks; evict after N consecutive failures and probe quarantined hosts out-of-band.
+- **Connection Draining**: During deployments, stop sending new traffic, allowing keep-alive sessions to finish gracefully.
+- **Circuit Breakers**: Trip per-origin breaker when error ratios exceed thresholds; shed traffic instead of cascading failure downstream.
+- **Autoscaling Hooks**: Pause scale-in when error budgets are depleted to avoid removing good capacity prematurely.
 
-## Stateful Traffic Strategies
-- Prefer stateless services so any node can serve any request; where sticky routing is required (shopping carts, WebSockets), back it with shared state (Redis, session DB) or replicate the data via consistent hashing so the balancer can still move traffic when needed.
-- For gRPC and long-lived streams, use **subchannel pools** with periodic rebalancing to avoid permanent skew.
+## Failure Modes & Mitigations
+- **Thundering Herd on Recovery**: Use jittered retry budgets and exponential backoff so recovered nodes do not get flooded immediately.
+- **Load Imbalance from Slow Metrics**: Prefer sliding-window EWMA measurements rather than cumulative averages when feeding schedulers.
+- **Stateful Sessions**: Terminate affinity at the edge (JWTs, distributed caches) so balancers are free to route anywhere.
+- **Split-Brain DNS**: Monitor authoritative DNS health; pair DNS with health-checked load balancers to avoid handing out dead endpoints.
 
-## Observability Checklist
-- Export per-target request rate, latency histogram, and HTTP status distribution.
-- Alert on imbalance indicators: max/min load ratio, percentage of traffic hitting degraded nodes.
-- Record routing decisions (e.g., via access logs with backend IDs) to debug intermittent customer issues quickly.
+## Observability
+- Export per-target success rate, latency percentiles, active connections, and saturation metrics.
+- Trace routing decisions (e.g., Envoy access logs with chosen cluster) to explain why specific requests hit specific backends.
+- Alert on imbalance ratios (max node load / avg load) to catch skewed pools early.
 
-## Interview / Design Questions
-1. How would you scale a global API gateway from 10k to 1M RPS?
-2. What happens if your health checks are too aggressive or too lax?
-3. How do you handle blue/green deploys without dropping long-lived connections?
-4. How would you route premium customers to beefier hosts without duplicating fleets?
+## Interview Drills
+1. Design a multi-region load-balancing strategy that survives a full region loss without global outage.
+2. Explain how to keep sticky sessions when moving from appliance load balancers to service-mesh-based client-side hashing.
+3. Walk through diagnosing intermittent 502s when only one AZ shows elevated response times.

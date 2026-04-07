@@ -1,43 +1,49 @@
 # Database Choices
 
-Healthy systems pick database technologies that match workload characteristics instead of chasing trends. Every choice trades durability, latency, query flexibility, and operational complexity.
+Matching data stores to workload characteristics keeps systems simple, fast, and maintainable. Every database decision trades query richness, consistency, cost, and operational effort.
 
-## Decision Dimensions
-| Dimension | Questions to Ask |
-| --- | --- |
-| Access Pattern | Point lookups, range scans, graph traversals, analytical aggregations? |
-| Consistency | Strict ACID, read-after-write, eventual consistency acceptable? |
-| Latency Targets | Sub-millisecond, single-digit ms, or analytics-scale seconds? |
-| Scale Profile | Steady growth, unpredictable bursts, write-heavy vs. read-heavy? |
-| Schema Evolution | Do fields evolve frequently or need ad-hoc columns? |
-| Operational Model | Managed service availability, self-hosted constraints, multi-region? |
+## Requirements Checklist
+- **Access Patterns**: Point lookups, range scans, aggregates, graph traversals?
+- **Write Profile**: Steady stream vs. large bursts, single-region vs. multi-region writers.
+- **Consistency Guarantees**: Strong ACID, read-after-write, or eventual acceptable?
+- **Latency Budgets**: Sub-millisecond for user paths vs. seconds for analytics.
+- **Operational Constraints**: Managed cloud, self-hosted, air-gapped, compliance requirements.
 
-## SQL Databases
-- Strong consistency, transactions, rich indexing, relational joins.
-- Vertical scaling plus read replicas; sharding adds complexity but well-trodden (e.g., Vitess, Citus).
-- Best for financial systems, inventory, strong referential integrity.
-- Tune with normalized schemas, query plans, partitioning, and caching of heavy joins.
+## Relational Databases
+- Offer transactions, joins, and mature tooling (PostgreSQL, MySQL, SQL Server).
+- Vertical scaling + read replicas cover most growth; sharding via Vitess/Citus for extreme scale.
+- Schema migrations require discipline: use online migrations, feature flags, and rollback scripts.
+- Best fit for financial ledgers, inventory, and workflows needing referential integrity.
 
 ## NoSQL Families
-- **Key-Value Stores** (DynamoDB, Riak): Predictable latency, horizontal scaling, but limited querying beyond primary key.
-- **Document Stores** (MongoDB, Couchbase): Flexible JSON-like records, indexes on nested fields, eventual or tunable consistency.
-- **Columnar Wide-Column Stores** (Cassandra, HBase): Optimized for large sequential writes and wide datasets; rely on denormalization and composite keys.
-- **Graph Databases** (Neo4j, JanusGraph): Efficient traversals and path queries, useful for recommendation or fraud graphs.
+| Type | Strengths | Typical Workloads |
+| --- | --- | --- |
+| Key-Value (DynamoDB, FoundationDB) | Predictable latency, horizontal scale | Session storage, IoT metrics |
+| Document (MongoDB, Couchbase) | Flexible schema, rich secondary indexes | User profiles, CMS content |
+| Wide-Column (Cassandra, HBase) | Massive writes, tunable consistency | Time-series, messaging metadata |
+| Graph (Neo4j, JanusGraph) | Efficient traversals, path queries | Recommendations, fraud detection |
 
 ## Polyglot Persistence
-- Use multiple databases per bounded context, but **own the data flow contracts** (CDC pipelines, change schemas, eventual reconciliation playbooks).
-- Keep authoritative source of truth clear; caches or read models should rebuild from upstream logs.
+- Partition the domain into bounded contexts; each owns its database and publishes change events.
+- Build authoritative logs (CDC, Debezium, Dynamo Streams) so downstream caches/read models can rebuild.
+- Guardrails: avoid cross-database joins via API composition or data pipelines.
 
-## Multi-Region Considerations
-- Define primary vs. active-active replication. Cross-region writes require conflict resolution (CRDTs, last-write-wins, application-specific merges).
-- WAN latency pushes teams toward local writes with async replication; be explicit about RPO/RTO metrics.
+## Multi-Region & HA
+- **Primary/Replica**: Async replication with defined RPO/RTO; failover runbooks are mandatory.
+- **Active-Active**: Requires conflict detection/merging (CRDTs, vector clocks, monotonic counters).
+- **Consensus Stores**: etcd/Spanner offer strongly consistent global state at the cost of higher write latency.
 
-## Operational Playbook
-- Implement schema migration tooling (online migrations, feature flags for new fields).
-- Monitor lag for replicas, storage utilization, slow query logs.
-- Backup + restore drills: test PITR, verify checksums, isolate restored clusters for validation before promoting.
+## Observability & Operations
+- Monitor slow queries, lock wait time, replica lag, disk utilization, and cache hit ratios.
+- Automate backups + regular restore drills; verify checksums and PITR windows.
+- Enforce connection pooling to prevent thundering herds during traffic spikes.
 
-## Interview Prompts
-1. When would you choose a relational DB plus caching over a document store for user profiles?
-2. How would you shard a multi-tenant database while still enabling analytics per tenant?
-3. What failure modes appear when replica lag grows beyond SLA, and how do you mitigate them?
+## Cost Controls
+- Right-size instance classes and storage tiers; watch IOPS vs. provisioned baselines.
+- Archive cold data to cheaper stores (S3, Glacier) with lifecycle policies.
+- For serverless offerings, cap provisioned throughput and use auto-scaling policies with alerts.
+
+## Interview Drills
+1. Compare when you would shard a relational database versus migrate to Cassandra.
+2. Design a multi-tenant database strategy that balances noisy neighbors against operational simplicity.
+3. Explain how you would detect and recover from replication lag causing stale reads.

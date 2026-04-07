@@ -1,37 +1,43 @@
 # Content Delivery Networks (CDNs)
 
-CDNs push content closer to users by caching responses at globally distributed points of presence (PoPs), reducing latency and shielding origin infrastructure from spikes.
+CDNs replicate static and semi-dynamic content to edge POPs worldwide, reducing latency and shielding origins from spikes.
 
-## What CDNs Provide
-- **Static Asset Caching**: HTML, CSS, JS, images with cache-control, ETag validation.
-- **Dynamic Content Acceleration**: TCP/TLS termination near users, protocol optimizations (HTTP/3, TLS session reuse).
-- **Edge Compute**: Functions/workers to run logic (A/B tests, auth, header rewriting) at the edge.
-- **Security**: DDoS mitigation, Web Application Firewall (WAF), bot filtering.
-- **Load Shedding**: Shield POP forwarders protect origin capacity.
+## Goals
+- **Latency Reduction**: Serve assets within tens of milliseconds from users worldwide.
+- **Origin Protection**: Absorb flash crowds, DDoS, and bot traffic before it reaches core services.
+- **Security**: Terminate TLS, enforce WAF rules, and hide origin IPs.
+- **Observability**: Provide detailed logging for cache hits/misses and threat intelligence.
 
-## Cache Strategy
-- Set `Cache-Control`, `Surrogate-Control`, and `Vary` headers intentionally.
-- Use **surrogate keys/tags** to invalidate groups of assets atomically.
-- Prefer **immutable asset URLs** (content hashes) + long TTL to maximize hit ratio.
-- Implement **stale-while-revalidate** to serve cached content while refreshing asynchronously.
+## Building Blocks
+1. **Edge POPs**: Thousands of geographically distributed servers with SSD caches.
+2. **Global Anycast DNS**: Routes clients to nearest healthy POP based on BGP.
+3. **Cache Hierarchy**: Regional mid-tier caches reduce cold-miss impact on origins.
+4. **Control Plane**: APIs / portals for purge, configuration, TLS cert management.
 
-## Multi-CDN & Failover
-- Use DNS load balancing or traffic steering (based on geography, performance, cost) to split load between providers.
-- Continuously measure POP performance (RUM + synthetic) to detect regional degradation.
-- Keep origin accessible only from CDN IP ranges; rotate allow lists automatically.
+## Cache Configuration
+- **TTL Strategy**: Combine long TTLs with surrogate keys and revalidation headers (ETag, Last-Modified).
+- **Stale-While-Revalidate**: Serve slightly stale responses while fetching fresh copy.
+- **Stale-On-Error**: Keep prior responses to mask transient origin failures.
+- **Compression & Image Optimization**: Brotli/Gzip, AVIF/WebP transforms, HTTP/3, QUIC for transport gains.
 
-## Observability & Operations
-- Monitor hit ratio, origin fetch rate, HTTP status breakdown, and cache fill latency.
-- Log request metadata (Edge vs. Origin) for debugging cache misses.
-- Automate purge workflows with CI hooks for deployments.
-- Test failover by forcing region-specific DNS overrides.
+## Dynamic Content & Edge Compute
+- Use edge functions/workers for header manipulation, bot mitigation, or lightweight personalization.
+- Collocate authentication or A/B experiment bucketing at edge to avoid round trips.
+- Caution: Keep edge logic stateless; rely on KV stores or durable objects sparingly.
 
-## Edge Compute Considerations
-- Constrain runtime (memory, CPU) to avoid impacting tail latency.
-- Keep business logic stateless; read config via KV stores or signed cookies.
-- Validate and sanitize inputs to avoid running untrusted code path at the edge.
+## Security Services
+- **WAF**: Rulesets for OWASP Top 10, managed bot defense, geo-blocking.
+- **mTLS / Client Certs**: Mutual TLS for B2B APIs proxied through CDN.
+- **DDoS Shielding**: Always-on scrubbing centers, rate-based rules, and anomaly detection.
+- **Tokenized URLs**: Signed URLs/cookies to prevent hotlinking or unauthorized downloads.
 
-## Interview Prompts
-1. How would you decide what to cache at the CDN vs. at the application layer?
-2. Describe a strategy for invalidating millions of product pages quickly after a price change.
-3. What telemetry would you inspect first if a CDN POP suddenly serves stale data?
+## Monitoring & Operations
+- Track cache hit ratio, origin offload, per-POP latency, and error rates.
+- Enable real-time logs/analytics streams (Kafka, BigQuery) for debugging.
+- Automate purge workflows with idempotent APIs; avoid full-cache flush unless necessary.
+- Multi-CDN strategies require consistent configs + health-based traffic steering.
+
+## Interview Drills
+1. Design a CDN strategy for personalized content that still benefits from edge caching.
+2. Explain how you would roll keys/certificates across thousands of POPs without downtime.
+3. Describe how to troubleshoot a cache-miss storm causing origin overload.
