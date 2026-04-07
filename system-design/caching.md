@@ -1,55 +1,43 @@
-# Caching Strategies
+# Caching
 
-Caching narrows the gap between impatient users and slower systems of record. A successful strategy treats caching as a full subsystem, complete with governance, observability, and failure planning, rather than as a sprinkle of in-memory lookups.
+## Overview
+Caching compresses latency and shields origins by serving hot data from faster tiers. A disciplined cache strategy defines ownership, invalidation, observability, and failure posture for every piece of data. Treat caches as subsystems with SLAs instead of opportunistic shortcuts and you gain predictable performance improvements without corrupting correctness.
 
-## Summary
-- **Latency & Cost**: Serve hot data from memory or the edge within sub-millisecond time while protecting expensive databases and APIs.
-- **Predictable Invalidation**: Keys, namespaces, and TTLs must reflect data ownership to keep caches trustworthy.
-- **Surge Absorption**: Stampede control and jittered TTLs keep viral events from toppling origins.
-- **Data Stewardship**: Security classification, auditing, and privacy policies apply to cached bytes as much as to primary stores.
+## Core Challenges
+- **Invalidation accuracy**: Keys must encode schema version, tenant, and locale so evictions are surgical.
+- **Stampede control**: Surges of misses can DDoS origins unless single-flight or request coalescing is in place.
+- **Data sensitivity**: PII and regulated content require encryption, ACLs, and shorter TTLs even when cached.
+- **Layer coordination**: Browsers, CDNs, application caches, and database buffers must agree on freshness rules.
 
-## Layered Cache Stack
-| Layer | Examples | Responsibilities |
-| --- | --- | --- |
-| Client | HTTP caching headers, service workers, local storage | Offline UX, suppress duplicate network hops |
-| Edge/CDN | CDN object caches, surrogate keys, stale-while-revalidate | Global fan-out, origin shielding, TLS termination |
-| Application | Redis/Memcached, process-local LRU | Low-latency reads, write buffering, rate limiting tokens |
-| Storage Engine | DB buffer pools, materialized views | Reduce disk seeks, serve hot partitions |
+## Architecture Building Blocks
+- **Client and browser caches**: HTTP caching headers, service workers, and local storage suppress duplicate requests.
+- **Edge caches**: CDN POPs cache static assets, API GET payloads, and even generated HTML with stale-while-revalidate policies.
+- **Application caches**: Redis or Memcached store computed responses, session state, token buckets, and feature flags.
+- **Storage-engine caches**: Buffer pools, page caches, and materialized views keep hot pages on SSD or RAM to reduce random I/O.
+- **Control plane**: Namespaces, TTL defaults, invalidation APIs, and audit logs live here to keep caches governable.
 
-## Key Design Levers
-- **Key Namespacing**: Encode schema version, locale, and tenant in keys (`feed:v2:user:{id}`) so flushes are surgical.
-- **TTL Strategy**: Mix deterministic TTLs for volatile data with long TTL + explicit invalidation for mostly-static assets; always add random jitter to prevent synchronized expirations.
-- **Stampede Prevention**: Use single-flight locks, request coalescing, or async refresh-ahead workers so only one miss regenerates data.
-- **Negative Caching**: Cache not-found results briefly to avoid repeated origin hits for nonexistent entities.
-- **Consistency Contracts**: Document whether readers see eventual or strong consistency; use version tokens or etags to guard upserts.
+## Design Checklist
+- Choose cache strategy per dataset: cache-aside for easy retrofits, read-through for managed caches, write-through when strict freshness is required, and refresh-ahead for predictable workloads.
+- Namespaces should include dataset version plus optional feature flag or experiment ID (`profile:v3:user:{id}`).
+- Apply TTL jitter so expiring entries do not thundering herd the origin at the same instant.
+- Cache negative lookups briefly to protect databases from brute-force scans of missing identifiers.
+- Document consistency guarantees for every key space (best-effort, bounded-staleness, write-through) so downstream services can reason about correctness.
 
-## Common Read/Write Patterns
-| Pattern | Mechanics | Ideal When |
-| --- | --- | --- |
-| Cache-Aside | App fetches on miss, writes result | Quick retrofit, tolerant of stale data |
-| Read-Through | Cache service fetches from origin | Managed caches, drop-in adoption |
-| Write-Through | Writes update origin + cache synchronously | Readers require latest state immediately |
-| Write-Behind | Buffer and flush asynchronously | Heavy write bursts, eventual consistency acceptable |
-| Refresh-Ahead | Background job refreshes hot keys | Predictable access cycles, heavy reads |
+## Failure Modes and Mitigations
+- **Thundering herd**: Use request coalescing, single-flight locks, or asynchronous regeneration so only one caller recomputes an entry.
+- **Silent staleness**: Embed schema version or checksums inside cached blobs; delete entries automatically when deployments bump versions.
+- **Hot keys**: Detect keys that consume disproportionate CPU and shard them with salts, request coalescing, or dedicated partitions.
+- **Replica lag**: Monitor replication delay in distributed caches and prefer local reads with stale-on-failure policies.
+- **Cache poisoning**: Authenticate writers, validate payload size and schema, and restrict cross-tenant access.
 
-## Operational Playbook
-- **Capacity Planning**: Track object size histograms, hit/miss ratios, and eviction causes; shard via consistent hashing plus virtual nodes when clusters grow.
-- **Data Governance**: Segment PII, financial, or regulated data into dedicated caches with tighter ACLs and TTLs; encrypt at rest where supported.
-- **Cold Start Procedures**: Keep warm-up scripts or snapshot restores ready to repopulate caches after maintenance or disasters.
-- **Deployment Hygiene**: Tie cache flushes to deploy stages; prefer targeted key invalidation over global purges.
+## Observability and Operations
+- Track hit ratio, miss ratio, eviction causes, memory usage, latency, and key size histograms per namespace.
+- Emit cache-layer spans in distributed tracing so developers can see when they are serving stale or cold data.
+- Provide tooling for targeted invalidation, cache warmups, and snapshot restore after maintenance events.
+- Run chaos drills that flush caches or kill nodes to ensure origins survive cold starts.
+- Classify cached data by sensitivity and enforce separate clusters or encryption for high-risk categories.
 
-## Failure Modes & Mitigations
-- **Thundering Herd**: Mitigate with jittered TTLs, token buckets on regenerate paths, and prewarming high-value keys.
-- **Silent Staleness**: Embed schema versions and checksums inside cached blobs; drop entries when readers upgrade.
-- **Hot Keys**: Detect via per-key counters, then shard with salts or pin to dedicated shards with weighted hashing.
-- **Replication Lag**: Monitor replica lag for clustered caches and degrade gracefully (read local cache, serve stale) when failover occurs.
-
-## Observability & Capacity Signals
-- Export hit/miss ratios, latency per cache layer, eviction counts, memory usage, replication delay, and connection pool depth.
-- Correlate cache flush commands and deployments on dashboards; most incidents occur immediately after invalidation events.
-- Sample payloads to catch serialization drift, oversize values, or PII leakage; alert when values exceed planned size budgets.
-
-## Interview Drills
-1. Design a multi-layer cache hierarchy for a personalized feed that requires immediate write visibility but can tolerate slightly stale reads elsewhere.
-2. Explain how you would keep a Redis cluster healthy during a viral event when numerous hot keys expire simultaneously.
-3. Describe the migration steps from cache-aside to write-through without losing correctness or overloading the primary database.
+## Interview Prompts
+1. Design a caching plan for a personalized feed that requires read-after-write consistency for the posting user but can tolerate stale reads for others.
+2. Explain how you would retrofit cache stampede protections into an API that currently calls the database on every miss.
+3. Discuss the operational signals you would instrument before launching a new edge cache tier in front of an existing API.

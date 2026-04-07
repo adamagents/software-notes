@@ -1,51 +1,43 @@
-# Microservices Architecture
+# Microservices
 
-Microservices decompose a product into independently deployable services with clear domain boundaries. They enable parallel development but demand strong platform rigor.
+## Overview
+Microservices split a product into independently deployable services aligned with business capabilities. They offer faster team autonomy and targeted scaling but only succeed when platform tooling provides consistent runtime standards, observability, and governance. Without that scaffolding, a microservice program devolves into a distributed monolith with fragile contracts.
 
-## Summary
-- **Team Autonomy**: Separate deploy cadences for bounded contexts accelerate delivery when platform tooling is mature.
-- **Strong Ownership**: Each service owns its data store and contracts; no reaching into another service's tables.
-- **Platform First**: CI/CD, observability, security, and runtime templates must exist before large-scale decomposition.
-- **Failure Containment**: Circuit breakers, backpressure, and async communication keep faults localized.
+## Core Challenges
+- **Boundary definition**: Poorly sliced services leak data ownership and require cross-service joins.
+- **Operational maturity**: Each service needs CI/CD, metrics, tracing, and runbooks; without automation the platform collapses under toil.
+- **Cross-service communication**: Excessive synchronous dependencies recreate tight coupling and cascading failures.
+- **Testing and rollout**: Version skew between services and schemas makes integration tests and migrations difficult.
 
-## Readiness Checklist
-- Domains mapped via DDD/event storming with explicit bounded contexts and shared vocabulary.
-- Centralized platform team providing repo templates, deployment pipelines, secrets management, and runtime standards.
-- Observability stack (metrics, logs, tracing) with propagation libraries shipped in every service.
-- Governance process for schema changes, API versioning, and dependency approvals.
+## Architecture Building Blocks
+- **Platform team**: Provides repo templates, deployment pipelines, secrets management, service mesh, and security policies.
+- **Service contracts**: REST, gRPC, or async events defined via schemas with linting, compatibility gating, and changelog tooling.
+- **Data ownership**: Each service owns its database; shared read models flow through events or APIs, not direct table access.
+- **Observability stack**: Metrics, logs, traces, alerting, and SLO tooling shipped as part of every service skeleton.
+- **Governance**: Architectural review boards, automated dependency scanners, and API catalogs keep the landscape understandable.
 
-## Design Principles
-- **Single Responsibility**: Services align with business capabilities and expose APIs/events that express that capability clearly.
-- **Loose Coupling**: Communicate via versioned contracts, avoid synchronous dependency chains when eventual consistency suffices.
-- **Automation Over Heroics**: Infrastructure as code, automated rollouts/rollbacks, and policy-as-code to enforce compliance.
-- **Data Ownership**: Each service writes to its own store, shares read models via events or APIs, and avoids shared mutable databases.
+## Design Checklist
+- Conduct domain-driven design workshops to identify bounded contexts before cutting code.
+- Enforce single responsibility per service; if a team cannot describe its service capability in one sentence, split further or keep monolithic.
+- Prefer asynchronous communication for noncritical paths to avoid long chains of blocking HTTP calls.
+- Bake retries, deadlines, and circuit breakers into client libraries or service mesh policies.
+- Provide centralized identity, authorization, and configuration services rather than bespoke implementations per team.
 
-## Communication Patterns
-| Pattern | Use When | Considerations |
-| --- | --- | --- |
-| REST/gRPC | Low-latency request/response workflows | Add retries, deadlines, circuit breakers |
-| Async Events | Decoupled workflows, audit trails, read-model fan-out | Requires idempotent consumers and DLQs |
-| Service Mesh | Uniform networking (mTLS, retries) across heterogeneous runtimes | Operational overhead, sidecar resource cost |
-
-## Operational Foundations
-- **Observability**: Propagate trace IDs, emit RED/USE metrics per endpoint, and centralize structured logging.
-- **Deployments**: Blue/green, canary, and feature-flag rollouts coupled with automated rollback triggers based on SLOs.
-- **Configuration Management**: Versioned config store plus runtime overrides with audit trails; secrets rotated centrally.
-- **Security**: Zero-trust networking, mutual TLS, fine-grained IAM, and dependency scanning built into CI.
-
-## Anti-Patterns to Avoid
-- **Distributed Monolith**: Too many synchronous dependencies recreate monolith coupling. Introduce async boundaries or caches to decouple.
-- **Snowflake Services**: Enforce platform-approved languages/frameworks to prevent bespoke stacks per team.
-- **Data Entanglement**: Without canonical events, data drifts across services. Establish event backbones and ownership rules.
-- **Premature Slicing**: Split only when metrics show a single service as a bottleneck; microservices add overhead.
+## Failure Modes and Mitigations
+- **Distributed monolith**: Too many synchronous dependencies. Add caches, queues, or read models to decouple workflows.
+- **Snowflake stacks**: Limit languages/runtimes to a supported set; otherwise platform tooling becomes impossible to maintain.
+- **Data entanglement**: If multiple services share a database, partition by schema ownership and introduce change-data-capture feeds for shared data needs.
+- **Observability gaps**: Mandate tracing headers, structured logging, and RED metrics before services can deploy to production.
+- **Organizational drift**: Without regular architecture reviews, APIs diverge and duplication explodes. Maintain service catalogs and automated dependency analysis.
 
 ## Migration Strategy
-1. Map current capabilities and identify seams that can be strangled one at a time.
-2. Build shared platform components (logging, auth, deployment) before large migrations.
-3. Proxy specific routes to new services while the monolith remains the source of truth; move data ownership last.
-4. Introduce CDC or change feeds to keep read models synchronized during the transition.
+1. Prepare platform fundamentals (CI/CD, logging, tracing, secrets, runtime templates).
+2. Identify seams in the monolith (e.g., billing, search) and extract read paths first via strangler patterns.
+3. Move data ownership gradually: dual-write through change feeds, validate new stores via shadow traffic, then cut over writes.
+4. Establish backward-compatible contracts so the monolith and new services can coexist for multiple releases.
+5. Measure velocity, incident frequency, and on-call load to confirm the decomposition is delivering value.
 
-## Interview Drills
-1. How would you enforce data ownership boundaries between microservices and prevent unauthorized joins?
-2. Describe how to debug a customer request that traverses six services across regions.
-3. What metrics prove that decomposing into microservices actually improved delivery velocity and reliability?
+## Interview Prompts
+1. How would you enforce data ownership boundaries so one microservice cannot directly access another's tables?
+2. Describe your debugging strategy when a request touches six services across regions and returns a 500.
+3. What metrics prove that moving from a monolith to microservices improved both delivery speed and reliability?
