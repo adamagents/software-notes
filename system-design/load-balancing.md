@@ -41,6 +41,22 @@ Load balancers absorb fluctuating demand, shield unhealthy nodes, and keep laten
 - Trace routing decisions (e.g., Envoy access logs with chosen cluster) to explain why specific requests hit specific backends.
 - Alert on imbalance ratios (max node load / avg load) to catch skewed pools early.
 
+## Diagnostic Checklist
+- Can you drain or quarantine a single instance/AZ/region without impacting SLOs? If not, add automation for progressive ramp-downs.
+- Does every control plane change (weights, upstream configs) emit an audit event plus a rollback recipe?
+- How quickly do health signals converge compared to the average failover window? Slow convergence causes flapping.
+- Are clients retrying with jitter and exponential backoff, or accidentally stampeding the same recovering hosts?
+- Is there an enforced config review (lint/tests) that blocks invalid routing rules before they reach production?
+
+## Quick Reference
+| Scenario | Preferred Strategy | Notes |
+| --- | --- | --- |
+| Sudden regional spike | Shift via global load balancer + autoscaling warm pool | Keep spare capacity or spot/scale set ready |
+| Making sticky sessions stateless | Issue signed tokens / store session in distributed cache | Allows L7 balancers to treat requests uniformly |
+| Migrating traffic between versions | Use weighted target groups or service mesh traffic shifting | Instrument per-version canary metrics |
+| Handling long-lived connections | Consider L4 balancers with connection preemption + draining | Track max-connections per host |
+| Protecting databases from retry storms | Circuit breakers + retry budgets propagated to clients | Pair with load-shed responses (429/503) |
+
 ## Interview Drills
 1. Design a multi-region load-balancing strategy that survives a full region loss without global outage.
 2. Explain how to keep sticky sessions when moving from appliance load balancers to service-mesh-based client-side hashing.
